@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { AppBindings, AppVariables } from '../middleware/auth';
-import { requireCapability, assertPropertyAccess } from '../middleware/auth';
+import { requireCapability, requireAuth, assertPropertyAccess } from '../middleware/auth';
 
 export const propertyRoutes = new Hono<{ Bindings: AppBindings; Variables: AppVariables }>();
 
@@ -42,9 +42,12 @@ propertyRoutes.get('/properties/:id/locations', async (c) => {
 // Resident convenience endpoint: returns the unit(s) the current user
 // occupies (owner/tenant/authorised_agent), used by the resident portal to
 // pre-fill forms (report a problem, move booking, access device request)
-// without asking the resident to know their own unit id.
+// without asking the resident to know their own unit id. This is a
+// self-service "my own records" lookup, so it only requires authentication
+// (not the 'property.read' capability, which residents intentionally lack —
+// they must not be able to browse arbitrary property/unit data).
 propertyRoutes.get('/me/units', async (c) => {
-  const user = requireCapability(c, 'property.read');
+  const user = requireAuth(c);
   if (!user.personId) return c.json([]);
   const { results } = await c.env.DB.prepare(
     `SELECT u.*, o.occupancy_role as occupancyRole FROM occupancies o
