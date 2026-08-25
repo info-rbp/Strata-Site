@@ -58,10 +58,16 @@ authRoutes.post('/login', async (c) => {
     entityId: user.id,
   });
 
+  // SameSite=None (with Secure) is required here, not Lax: the sandbox
+  // preview (and Cloudflare Pages preview deployments generally) is loaded
+  // inside a cross-site iframe by the hosting UI. Lax cookies are dropped
+  // by the browser in that third-party context, which makes login look
+  // like it "succeeds" (200 + Set-Cookie) but every subsequent request is
+  // treated as unauthenticated and bounces back to /login.
   setCookie(c, 'pmhub_session', sessionId, {
     httpOnly: true,
     secure: true,
-    sameSite: 'Lax',
+    sameSite: 'None',
     path: '/',
     maxAge: 60 * 60 * 24 * 7,
   });
@@ -70,7 +76,9 @@ authRoutes.post('/login', async (c) => {
 });
 
 authRoutes.post('/logout', async (c) => {
-  deleteCookie(c, 'pmhub_session', { path: '/' });
+  // Deletion attributes must match the attributes the cookie was set with
+  // (path + sameSite/secure) or some browsers will ignore the deletion.
+  deleteCookie(c, 'pmhub_session', { path: '/', secure: true, sameSite: 'None' });
   return c.json({ ok: true });
 });
 
