@@ -1,1 +1,86 @@
-h1 { font-family: Arial, Helvetica, sans-serif; }
+/* PM Hub shared styles — utility classes not covered by Tailwind CDN defaults */
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.status-new, .status-submitted, .status-created, .status-open { background: #e0f2fe; color: #0369a1; }
+.status-bm_assessment, .status-pending_approval, .status-awaiting_authorisation, .status-in_progress, .status-scheduled { background: #fef3c7; color: #92400e; }
+.status-approved, .status-completed, .status-issued, .status-active, .status-verified { background: #dcfce7; color: #15803d; }
+.status-closed, .status-declined, .status-cancelled { background: #f1f5f9; color: #475569; }
+.status-high, .status-immediate_danger, .status-urgent { background: #fee2e2; color: #b91c1c; }
+.status-contractor_required, .status-contractor_booked, .status-awaiting_verification, .status-ready_for_collection, .status-programming { background: #ede9fe; color: #6d28d9; }
+
+.card {
+  background: white;
+  border-radius: 0.9rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.03);
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 0.6rem;
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 500;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.nav-link:hover { background: #f1f5f9; color: #0f172a; }
+.nav-link.active { background: #eff6ff; color: #1d4ed8; }
+
+.btn-primary {
+  background: #1d4ed8;
+  color: white;
+  font-weight: 600;
+  padding: 0.55rem 1.1rem;
+  border-radius: 0.6rem;
+  font-size: 0.88rem;
+  transition: background-color 0.12s ease;
+}
+.btn-primary:hover { background: #1e40af; }
+.btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
+
+.btn-secondary {
+  background: white;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-weight: 600;
+  padding: 0.55rem 1.1rem;
+  border-radius: 0.6rem;
+  font-size: 0.88rem;
+  transition: background-color 0.12s ease;
+}
+.btn-secondary:hover { background: #f8fafc; }
+
+.field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0.25rem;
+  display: block;
+}
+
+.field-input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.55rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  background: white;
+}
+.field-input:focus { outline: 2px solid #93c5fd; border-color: #3b82f6; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
