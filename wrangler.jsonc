@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "webapp",
+  "name": "pmhub",
   "compatibility_date": "2026-08-20",
   "pages_build_output_dir": "./dist",
   "compatibility_flags": [
@@ -10,7 +10,7 @@
     {
       "binding": "DB",
       "database_name": "pmhub-production",
-      "database_id": "local-placeholder-will-be-replaced-on-deploy"
+      "database_id": "29d715f5-0a9e-467c-9e6f-f53b989b00a8"
     }
   ],
   "r2_buckets": [
