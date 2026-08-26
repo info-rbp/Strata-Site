@@ -2,6 +2,8 @@ name: Release ProInspect Building Management to Cloudflare
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,6 +14,7 @@ concurrency:
 
 jobs:
   release:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[production-release]')
     name: Backup, migrate, deploy and smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -32,8 +35,4 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: 8ca23ac6d2cc906d4dd13b8da5ea2b25
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          PROINSPECT_ADMIN_PASSWORD: ${{ secrets.PROINSPECT_ADMIN_PASSWORD }}
-          PROINSPECT_STRATA_PASSWORD: ${{ secrets.PROINSPECT_STRATA_PASSWORD }}
-          PROINSPECT_PRIMA_BM_PASSWORD: ${{ secrets.PROINSPECT_PRIMA_BM_PASSWORD }}
-          PROINSPECT_MERIDIAN_BM_PASSWORD: ${{ secrets.PROINSPECT_MERIDIAN_BM_PASSWORD }}
         run: bash scripts/release-cloudflare.sh
