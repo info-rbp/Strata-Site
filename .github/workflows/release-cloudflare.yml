@@ -13,6 +13,7 @@ concurrency:
 env:
   CLOUDFLARE_ACCOUNT_ID: 8ca23ac6d2cc906d4dd13b8da5ea2b25
   D1_DATABASE: pmhub-production
+  R2_BUCKET: pmhub-evidence
   PAGES_PROJECT: pmhub
   LIVE_URL: https://pmhub.pages.dev
 
@@ -22,6 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      ADMIN_PASSWORD: ${{ secrets.PROINSPECT_ADMIN_PASSWORD }}
+      PRIMA_BM_PASSWORD: ${{ secrets.PROINSPECT_PRIMA_BM_PASSWORD }}
+      MERIDIAN_BM_PASSWORD: ${{ secrets.PROINSPECT_MERIDIAN_BM_PASSWORD }}
+      STRATA_PASSWORD: ${{ secrets.PROINSPECT_STRATA_PASSWORD }}
     steps:
       - name: Checkout main
         uses: actions/checkout@v4
@@ -29,8 +36,6 @@ jobs:
           ref: main
 
       - name: Require Cloudflare release token
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'CLOUDFLARE_API_TOKEN is not configured for the production environment.'; exit 1; }
 
@@ -44,85 +49,88 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Type-check
-        run: npm install --no-save --ignore-scripts --no-audit --no-fund typescript@5.9.2 && npx tsc --noEmit
+        run: npx --yes --package=typescript@5.9.2 tsc --noEmit
 
       - name: Build Cloudflare bundle
         run: npm run build
 
-      - name: Export production D1 backup
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Export and securely store production D1 backup
         run: |
-          mkdir -p release-artifacts
-          npx wrangler d1 export "$D1_DATABASE" --remote --output="release-artifacts/${D1_DATABASE}-${GITHUB_SHA}.sql"
-
-      - name: Upload pre-migration database backup
-        uses: actions/upload-artifact@v4
-        with:
-          name: pmhub-production-pre-release-${{ github.sha }}
-          path: release-artifacts/*.sql
-          if-no-files-found: error
-          retention-days: 30
+          mkdir -p release-work
+          backup_file="release-work/${D1_DATABASE}-${GITHUB_SHA}.sql"
+          backup_key="production-backups/${GITHUB_RUN_ID}/${D1_DATABASE}-${GITHUB_SHA}.sql"
+          npx wrangler d1 export "$D1_DATABASE" --remote --output="$backup_file"
+          test -s "$backup_file"
+          npx wrangler r2 object put "$R2_BUCKET/$backup_key" --file="$backup_file" --content-type="application/sql"
+          echo "BACKUP_R2_KEY=$backup_key" >> "$GITHUB_ENV"
+          rm -f "$backup_file"
+          echo "Production D1 backup stored privately at R2 key: $backup_key" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Apply production D1 migrations
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler d1 migrations apply "$D1_DATABASE" --remote
 
       - name: Verify production accounts and demo lockdown
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          account_json="$(npx wrangler d1 execute "$D1_DATABASE" --remote --json --command "SELECT COUNT(*) AS account_count FROM users WHERE email IN ('info@remotebusinesspartner.com.au','shan.goodlet@lpg.com.au','buildingmanager.prima@gmail.com','buildingmanager.meridian@gmail.com') AND status = 'active';")"
+          echo "$account_json" | jq -e '.[0].results[0].account_count == 4' >/dev/null
+
+          demo_users_json="$(npx wrangler d1 execute "$D1_DATABASE" --remote --json --command "SELECT COUNT(*) AS active_demo_users FROM users WHERE email LIKE '%@pmhub.demo' AND status = 'active';")"
+          echo "$demo_users_json" | jq -e '.[0].results[0].active_demo_users == 0' >/dev/null
+
+          demo_sessions_json="$(npx wrangler d1 execute "$D1_DATABASE" --remote --json --command "SELECT COUNT(*) AS active_demo_sessions FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.email LIKE '%@pmhub.demo';")"
+          echo "$demo_sessions_json" | jq -e '.[0].results[0].active_demo_sessions == 0' >/dev/null
+
+          demo_records_json="$(npx wrangler d1 execute "$D1_DATABASE" --remote --json --command "SELECT (SELECT COUNT(*) FROM resident_requests WHERE id = 'req_demo_1') + (SELECT COUNT(*) FROM defects WHERE id = 'defect_demo_1') AS known_demo_records;")"
+          echo "$demo_records_json" | jq -e '.[0].results[0].known_demo_records == 0' >/dev/null
+
           npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT email, role, status, COALESCE(property_scope,'all') AS property_scope FROM users WHERE email IN ('info@remotebusinesspartner.com.au','shan.goodlet@lpg.com.au','buildingmanager.prima@gmail.com','buildingmanager.meridian@gmail.com') ORDER BY email;"
-          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT COUNT(*) AS active_demo_users FROM users WHERE email LIKE '%@pmhub.demo' AND status = 'active';"
-          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT COUNT(*) AS active_demo_sessions FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.email LIKE '%@pmhub.demo';"
-          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT COUNT(*) AS known_demo_requests FROM resident_requests WHERE id = 'req_demo_1';"
-          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT COUNT(*) AS known_demo_defects FROM defects WHERE id = 'defect_demo_1';"
+          echo 'Production account and demo-lockdown checks passed.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Deploy Cloudflare Pages production
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx wrangler pages deploy dist --project-name "$PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false
+        run: npx wrangler pages deploy dist --project-name "$PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA"
 
       - name: Wait for live deployment
         run: sleep 12
 
       - name: Public smoke checks
         run: |
-          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/api/health" | tee release-artifacts/health.json
-          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/login" > release-artifacts/login.html
-          grep -q 'ProInspect Building Management' release-artifacts/login.html
-          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/manifest.webmanifest" > release-artifacts/manifest.webmanifest
-          grep -q 'ProInspect Building Management' release-artifacts/manifest.webmanifest
+          mkdir -p release-work
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/api/health" | tee release-work/health.json
+          grep -q 'ProInspect Building Management' release-work/health.json
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/login" > release-work/login.html
+          grep -q 'ProInspect Building Management' release-work/login.html
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/manifest.webmanifest" > release-work/manifest.webmanifest
+          grep -q 'ProInspect Building Management' release-work/manifest.webmanifest
+          echo 'Public production smoke checks passed.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticated role smoke checks
-        if: ${{ secrets.PROINSPECT_ADMIN_PASSWORD != '' && secrets.PROINSPECT_PRIMA_BM_PASSWORD != '' && secrets.PROINSPECT_MERIDIAN_BM_PASSWORD != '' && secrets.PROINSPECT_STRATA_PASSWORD != '' }}
-        env:
-          ADMIN_PASSWORD: ${{ secrets.PROINSPECT_ADMIN_PASSWORD }}
-          PRIMA_BM_PASSWORD: ${{ secrets.PROINSPECT_PRIMA_BM_PASSWORD }}
-          MERIDIAN_BM_PASSWORD: ${{ secrets.PROINSPECT_MERIDIAN_BM_PASSWORD }}
-          STRATA_PASSWORD: ${{ secrets.PROINSPECT_STRATA_PASSWORD }}
         run: |
+          if [ -z "$ADMIN_PASSWORD" ] || [ -z "$STRATA_PASSWORD" ] || [ -z "$PRIMA_BM_PASSWORD" ] || [ -z "$MERIDIAN_BM_PASSWORD" ]; then
+            echo 'Authenticated role smoke checks skipped because one or more role password secrets are not configured.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           smoke_role() {
             email="$1"
             password="$2"
             page="$3"
             api_path="$4"
-            jar="release-artifacts/cookies-$(echo "$email" | tr '@.' '__').txt"
-            curl --fail --silent --show-error --cookie-jar "$jar" --header 'Content-Type: application/json' --data "{\"email\":\"$email\",\"password\":\"$password\"}" "$LIVE_URL/api/login" > /dev/null
-            curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$page" > /dev/null
-            curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$api_path" > /dev/null
+            jar="$(mktemp)"
+            trap 'rm -f "$jar"' RETURN
+            curl --fail --silent --show-error --cookie-jar "$jar" --header 'Content-Type: application/json' --data "{\"email\":\"$email\",\"password\":\"$password\"}" "$LIVE_URL/api/login" >/dev/null
+            curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$page" >/dev/null
+            curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$api_path" >/dev/null
+            rm -f "$jar"
+            trap - RETURN
           }
           smoke_role 'info@remotebusinesspartner.com.au' "$ADMIN_PASSWORD" '/strata' '/api/properties'
           smoke_role 'shan.goodlet@lpg.com.au' "$STRATA_PASSWORD" '/strata/reports' '/api/properties'
           smoke_role 'buildingmanager.prima@gmail.com' "$PRIMA_BM_PASSWORD" '/bm/forms' '/api/forms/options'
           smoke_role 'buildingmanager.meridian@gmail.com' "$MERIDIAN_BM_PASSWORD" '/bm/inspections' '/api/forms/options'
+          echo 'Authenticated role smoke checks passed.' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload release smoke evidence
+      - name: Release summary
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pmhub-production-smoke-${{ github.sha }}
-          path: release-artifacts
-          if-no-files-found: warn
-          retention-days: 30
+        run: |
+          rm -rf release-work
+          echo "Backup R2 key: ${BACKUP_R2_KEY:-not-created}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
