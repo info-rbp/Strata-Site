@@ -12,7 +12,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +27,7 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Type-check
-        run: npm install --no-save --ignore-scripts --no-audit --no-fund typescript@5.9.2 && npx tsc --noEmit
+        run: npx --yes --package=typescript@5.9.2 tsc --noEmit
 
       - name: Build Cloudflare Pages bundle
         run: npm run build
@@ -35,5 +35,43 @@ jobs:
       - name: Apply fresh local D1 migrations
         run: npm run db:migrate:local
 
-      - name: Load fresh local seed data
+      - name: Load fresh local development seed
         run: npm run db:seed
+
+      - name: Rehearse existing-production migration sequence
+        shell: bash
+        run: |
+          set -euo pipefail
+          db=/tmp/proinspect-production-flow.sqlite
+          rm -f "$db"
+          {
+            echo '.bail on'
+            echo 'PRAGMA foreign_keys=ON;'
+            cat migrations/0001_initial_schema.sql
+            cat seed.sql
+            for migration in migrations/000[2-9]_*.sql; do
+              echo "-- applying $migration"
+              cat "$migration"
+            done
+          } | sqlite3 "$db"
+
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM users WHERE status='active' AND ((lower(email)='info@remotebusinesspartner.com.au' AND role='system_administrator' AND property_scope IS NULL) OR (lower(email)='shan.goodlet@lpg.com.au' AND role='strata_manager' AND property_scope IS NULL) OR (lower(email)='buildingmanager.prima@gmail.com' AND role='building_manager' AND property_scope='prop_prima') OR (lower(email)='buildingmanager.meridian@gmail.com' AND role='building_manager' AND property_scope='prop_meridian'));")" = '4'
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM users WHERE email LIKE '%@pmhub.demo' AND status='active';")" = '0'
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM resident_requests WHERE id='req_demo_1';")" = '0'
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM defects WHERE id='defect_demo_1';")" = '0'
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM units WHERE id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');")" = '0'
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM contractors WHERE id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean');")" = '0'
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM keys_register WHERE id IN ('key_prima_plant','key_prima_waste','key_meridian_plant','key_meridian_waste');")" = '0'
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM properties WHERE id='prop_prima' AND timezone='Australia/Perth' AND strata_plan='69777';")" = '1'
+          test "$(sqlite3 "$db" "SELECT COUNT(*) FROM properties WHERE id='prop_meridian' AND timezone='Australia/Perth' AND strata_plan='69776';")" = '1'
+
+      - name: Verify finalised monthly reports are immutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          db=/tmp/proinspect-production-flow.sqlite
+          sqlite3 "$db" "INSERT INTO monthly_report_drafts (id,property_id,report_month,status) VALUES ('ci_finalised','prop_prima','2026-08','finalised');"
+          if sqlite3 "$db" "UPDATE monthly_report_drafts SET title='should fail' WHERE id='ci_finalised';"; then
+            echo 'Finalised monthly report was unexpectedly mutable.' >&2
+            exit 1
+          fi
