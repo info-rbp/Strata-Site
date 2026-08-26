@@ -1,72 +1,155 @@
-# PM Hub — Building Operations Platform
+# ProInspect Building Management
 
-## Project Overview
-- **Name**: PM Hub
-- **Goal**: A building operations platform covering two properties (**Prima** and **Meridian Apartments**), extending the ProInspect Property Platform's capability-based RBAC, workflow-gate, and audit-trail patterns into day-to-day building/strata operations.
-- **Phase**: Phase 1 MVP — 4 role-based portals (Strata Manager, Building Manager, Contractor, Resident), defects, contractor attendance/work orders, resident requests, move-in/out, access devices, incidents, inspections, dashboards, notifications, documents, quotes, reports, handover, and user management.
+ProInspect Building Management is the operational building-management application for **Prima Apartments** and **Meridian Apartments** in North Fremantle, Western Australia. It is designed for practical day-to-day use by Building Management, Strata Management, residents and contractors, while keeping structured operational records that can feed monthly reporting and the wider ProInspect platform.
 
-## URLs
-- **Production (Cloudflare Pages)**: https://pmhub.pages.dev
-- **Latest deployment**: https://eb4475ef.pmhub.pages.dev
-- **GitHub**: https://github.com/info-rbp/Strata-Site
-- **API base**: `/api/*` (see `src/routes/*.ts` for the full route list — auth, dashboard, defects, requests, workOrders, moves, accessDevices, incidents, inspections, notifications, documents, quotes, reports, handover, users, contractors, properties)
+## Production environment
 
-## Data Architecture
-- **Storage**: Cloudflare D1 (SQLite) — database `pmhub-production`, 42+ table schema in `migrations/0001_initial_schema.sql` (properties, buildings, locations, units, people, users, occupancies, contractors, keys/access devices, inspection templates + checkpoints, resident requests, defects, work orders, incidents, notices, bylaws, audit log, etc.)
-- **File storage**: Cloudflare R2 bucket `pmhub-evidence` (binding `EVIDENCE`) — for defect/inspection photo evidence and documents
-- **Auth**: Session-cookie based (`pmhub_session`, `SameSite=None; Secure; HttpOnly` — required because previews render in a cross-site iframe), passwords hashed with PBKDF2-SHA256 via Web Crypto API (`src/lib/crypto.ts`)
-- **Authorization**: Capability-based RBAC (`src/domain/security.ts`) + workflow state machines (`src/domain/workflow.ts`), mirroring ProInspect
-- **Demo data**: `seed.sql` — Prima & Meridian properties, 8 locations, 6 units, 10 people/users (one per role), 3 occupancies, 4 contractors, 4 keys, 2 inspection templates, sample resident request + linked defect. **Loaded into both local dev and production D1.**
+- **Live URL:** https://pmhub.pages.dev
+- **Source:** https://github.com/info-rbp/Strata-Site
+- **Platform:** Cloudflare Pages
+- **Pages project:** `pmhub`
+- **D1 database:** `pmhub-production`
+- **D1 database ID:** `29d715f5-0a9e-467c-9e6f-f53b989b00a8`
+- **R2 evidence bucket:** `pmhub-evidence`
+- **Cloudflare account ID:** `8ca23ac6d2cc906d4dd13b8da5ea2b25`
+- **Application timezone:** `Australia/Perth`
 
-## Demo Accounts
-All demo users share the password **`Passw0rd!`**:
+The Cloudflare resource names intentionally remain `pmhub*` for deployment continuity. They are infrastructure identifiers, not customer-facing product branding.
 
-| Role | Email |
-|---|---|
-| System Administrator | admin@pmhub.demo |
-| Strata Manager | strata@pmhub.demo |
-| Council Member | council@pmhub.demo |
-| Building Manager (Prima) | bm.prima@pmhub.demo |
-| Relief Building Manager | relief.bm@pmhub.demo |
-| Building Manager (Meridian) | bm.meridian@pmhub.demo |
-| Contractor | plumbing@pmhub.demo |
-| Resident (Prima) | olivia.grant@pmhub.demo / liam.foster@pmhub.demo |
-| Resident (Meridian) | emma.walsh@pmhub.demo |
+## Architecture
 
-## User Guide
-1. Go to `/login` and sign in with one of the demo accounts above.
-2. Each role is routed to its own portal: Strata Manager → `/strata`, Building Manager → `/bm`, Contractor → `/contractor`, Resident → `/resident`.
-3. Dashboards, defects, approvals, contractor check-in/work orders, resident requests, moves, access devices, incidents, bylaws/notices, users, and audit trail are all live against seeded Prima/Meridian data.
+- **Runtime:** Hono + TypeScript on Cloudflare Pages Functions
+- **Rendering:** server-rendered Hono JSX with a shared browser runtime
+- **Database:** Cloudflare D1 / SQLite
+- **Evidence:** Cloudflare R2
+- **Authentication:** secure session cookies and PBKDF2-SHA256 password hashes
+- **Authorization:** capability-based RBAC plus property scoping and workflow state machines
+- **Mobile support:** installable PWA shell, local form drafts and idempotent submissions
+- **Integration boundary:** immutable form-submission archive plus provider-neutral integration outbox for later Google Sheets synchronisation
 
-## Deployment
-- **Platform**: Cloudflare Pages (BYOK — deployed to the user's own Cloudflare account)
-- **Status**: ✅ Active — live at https://pmhub.pages.dev
-- **Cloudflare account**: info@remotebusinesspartner.com.au (Account ID `8ca23ac6d2cc906d4dd13b8da5ea2b25`)
-- **Tech Stack**: Hono + TypeScript + Vite, TailwindCSS (CDN), Cloudflare D1 + R2
-- **Resources**:
-  - Pages project: `pmhub`
-  - D1 database: `pmhub-production` (`29d715f5-0a9e-467c-9e6f-f53b989b00a8`)
-  - R2 bucket: `pmhub-evidence`
-- **Redeploy**:
-  ```bash
-  npm run build
-  npx wrangler pages deploy dist --project-name pmhub
-  ```
-- **Local sandbox dev** (separate local SQLite D1, not connected to production):
-  ```bash
-  npm run build
-  pm2 start ecosystem.config.cjs
-  ```
-- **Last Updated**: 2026-08-26
+## Portals
 
-## Features Not Yet Implemented
-- Phase 2+ items per the 31-section build guide beyond Phase 1 MVP scope (not yet scoped in detail in this session)
-- Automated test suite (current verification is manual curl/Playwright checks)
-- Custom domain binding (currently on default `*.pages.dev` domain)
-- Production secrets management review (no third-party API secrets currently required)
+| Portal | Route | Primary users |
+| --- | --- | --- |
+| Building Management | `/bm` | Building Manager, Relief Building Manager |
+| Strata / Administration | `/strata` | Strata Manager, Council, System Administrator |
+| Resident | `/resident` | Owners and tenants |
+| Contractor | `/contractor` | Approved contractor accounts |
 
-## Recommended Next Steps
-1. Review Phase 1 with the client against the 31-section build guide and prioritize Phase 2 scope.
-2. Replace/rotate demo seed data before real client onboarding (`seed.sql` is illustrative only).
-3. Consider a custom domain for the production deployment.
-4. Add automated tests (unit + integration) for the RBAC/workflow-gate logic.
+## Field workflows
+
+Building Management includes quick forms and structured workflows for:
+
+- daily activity logging;
+- common-property inspections;
+- maintenance and defect recording;
+- waste-management activity and exceptions;
+- incidents and security events;
+- by-law observations;
+- resident induction;
+- contractor sign-in, controlled-key handling and sign-out;
+- resident move / large-item bookings;
+- security device and key requests; and
+- monthly Building Management reporting.
+
+Monthly reports are generated from the operational database, retain editable Building Manager commentary before finalisation, and expose an AI-ready JSON package so report drafting does not require re-keying the month's work.
+
+## Database migrations
+
+Migrations are applied in order from `migrations/`.
+
+Current release additions:
+
+- `0002_operational_forms_and_reporting.sql` - operational forms, monthly reporting and Google Sheets outbox foundation
+- `0003_integration_outbox_reference.sql` - external integration reference tracking
+- `0004_property_operating_settings.sql` - property-specific operating rules
+- `0005_production_accounts_and_demo_lockdown.sql` - production account bootstrap and demo-account lockdown
+
+For a local database:
+
+```bash
+npm run db:migrate:local
+npm run db:seed
+```
+
+For the production D1 database, take a remote export first and then run:
+
+```bash
+npx wrangler d1 migrations apply pmhub-production --remote
+```
+
+## Development
+
+Use Node 22.
+
+```bash
+npm ci --ignore-scripts --no-audit --no-fund
+npm run dev
+```
+
+Build the Cloudflare bundle with:
+
+```bash
+npm run build
+```
+
+## Release validation
+
+The GitHub Actions validation workflow performs:
+
+1. dependency installation;
+2. strict TypeScript checking;
+3. the production Vite build;
+4. application of all migrations to a fresh local D1 database; and
+5. loading of local seed data.
+
+Production deployment should not proceed unless this workflow passes.
+
+## Production release sequence
+
+1. Review and merge the release pull request.
+2. Export a backup of `pmhub-production`.
+3. Apply remote D1 migrations.
+4. Verify named production accounts can authenticate.
+5. Verify all `@pmhub.demo` users are suspended and their sessions invalidated.
+6. Confirm known seed operational records have been removed.
+7. Build and deploy the Cloudflare Pages project.
+8. Run the role-based smoke-test matrix against the live URL.
+
+Example backup:
+
+```bash
+npx wrangler d1 export pmhub-production --remote --output=pmhub-production-backup.sql
+```
+
+Example deployment:
+
+```bash
+npm run build
+npx wrangler pages deploy dist --project-name pmhub --branch main
+```
+
+## Production credentials
+
+Plain-text production passwords are **never committed to GitHub**. Initial production users are created by migration using PBKDF2 hashes. The temporary credentials are provided separately to the system owner and can be rotated through `POST /api/change-password` after first login.
+
+The publicly documented Phase 1 `@pmhub.demo` credentials are suspended by the production-hardening migration and all of their active sessions are invalidated.
+
+## Evidence security
+
+New evidence uploads are:
+
+- authenticated;
+- property scoped;
+- restricted to approved content types;
+- limited to 15 MB;
+- stamped with uploader metadata; and
+- recorded in the audit trail.
+
+Residents and contractors may retrieve only evidence uploaded by their own account. Building Management and authorised management roles retain property-scoped operational access.
+
+## Production data principle
+
+D1 is the operational source of truth. Google Sheets is intended as a downstream integration/reporting destination and must not replace database workflow state, audit history or access-control enforcement.
+
+Reference data such as verified locations, unit lists, contractor records and inspection routes should be maintained as building information is confirmed. `seed.sql` remains a local-development aid and must not be used to reactivate demonstration accounts in production.
