@@ -11,6 +11,7 @@ export const renderer = jsxRenderer(({ children, title }) => {
         <meta name="description" content="Building operations for Prima and Meridian Apartments" />
         <title>{title ? `${title} · ProInspect Building Management` : 'ProInspect Building Management · Prima & Meridian'}</title>
         <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" href="/static/proinspect-icon.svg" type="image/svg+xml" />
         <link rel="preconnect" href="https://cdn.tailwindcss.com" />
         <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin="anonymous" />
         <script src="https://cdn.tailwindcss.com"></script>
@@ -20,6 +21,7 @@ export const renderer = jsxRenderer(({ children, title }) => {
         />
         <link href="/static/style.css" rel="stylesheet" />
         <script src="/static/app.js"></script>
+        <script src="/static/pwa.js" defer></script>
       </head>
       <body class="bg-slate-50 text-slate-900 antialiased">{children}</body>
     </html>
