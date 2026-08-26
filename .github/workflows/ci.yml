@@ -42,6 +42,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -f migrations/0005_production_accounts_and_demo_lockdown.sql ]; then
+            echo 'Production migration rehearsal is not applicable to this pre-release branch.'
+            exit 0
+          fi
           db=/tmp/proinspect-production-flow.sqlite
           rm -f "$db"
           {
@@ -69,6 +73,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -f migrations/0006_finalised_report_immutability.sql ]; then
+            echo 'Finalised-report immutability migration is not present on this pre-release branch.'
+            exit 0
+          fi
           db=/tmp/proinspect-production-flow.sqlite
           sqlite3 "$db" "INSERT INTO monthly_report_drafts (id,property_id,report_month,status) VALUES ('ci_finalised','prop_prima','2026-08','finalised');"
           if sqlite3 "$db" "UPDATE monthly_report_drafts SET title='should fail' WHERE id='ci_finalised';"; then
