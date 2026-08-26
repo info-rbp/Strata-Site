@@ -59,9 +59,9 @@ jobs:
           mkdir -p release-work
           backup_file="release-work/${D1_DATABASE}-${GITHUB_SHA}.sql"
           backup_key="production-backups/${GITHUB_RUN_ID}/${D1_DATABASE}-${GITHUB_SHA}.sql"
-          npx wrangler d1 export "$D1_DATABASE" --remote --output="$backup_file"
+          npx wrangler d1 export "$D1_DATABASE" --remote --skip-confirmation --output="$backup_file"
           test -s "$backup_file"
-          npx wrangler r2 object put "$R2_BUCKET/$backup_key" --file="$backup_file" --content-type="application/sql"
+          npx wrangler r2 object put "$R2_BUCKET/$backup_key" --remote --file="$backup_file" --content-type="application/sql"
           echo "BACKUP_R2_KEY=$backup_key" >> "$GITHUB_ENV"
           rm -f "$backup_file"
           echo "Production D1 backup stored privately at R2 key: $backup_key" >> "$GITHUB_STEP_SUMMARY"
@@ -115,12 +115,10 @@ jobs:
             page="$3"
             api_path="$4"
             jar="$(mktemp)"
-            trap 'rm -f "$jar"' RETURN
             curl --fail --silent --show-error --cookie-jar "$jar" --header 'Content-Type: application/json' --data "{\"email\":\"$email\",\"password\":\"$password\"}" "$LIVE_URL/api/login" >/dev/null
             curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$page" >/dev/null
             curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$api_path" >/dev/null
             rm -f "$jar"
-            trap - RETURN
           }
           smoke_role 'info@remotebusinesspartner.com.au' "$ADMIN_PASSWORD" '/strata' '/api/properties'
           smoke_role 'shan.goodlet@lpg.com.au' "$STRATA_PASSWORD" '/strata/reports' '/api/properties'
