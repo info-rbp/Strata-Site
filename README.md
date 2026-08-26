@@ -52,7 +52,7 @@ Building Management includes quick forms and structured workflows for:
 - security device and key requests; and
 - monthly Building Management reporting.
 
-Monthly reports are generated from the operational database, retain editable Building Manager commentary before finalisation, and expose an AI-ready JSON package so report drafting does not require re-keying the month's work.
+Monthly reports are generated from the operational database, retain editable Building Manager commentary before finalisation, and expose an AI-ready JSON package so report drafting does not require re-keying the month's work. Once a report is finalised, D1 triggers prevent both modification and deletion of that finalised snapshot.
 
 ## Database migrations
 
@@ -63,7 +63,8 @@ Current release additions:
 - `0002_operational_forms_and_reporting.sql` - operational forms, monthly reporting and Google Sheets outbox foundation
 - `0003_integration_outbox_reference.sql` - external integration reference tracking
 - `0004_property_operating_settings.sql` - property-specific operating rules
-- `0005_production_accounts_and_demo_lockdown.sql` - production account bootstrap and demo-account lockdown
+- `0005_production_accounts_and_demo_lockdown.sql` - production account bootstrap, demo-account lockdown and removal of known illustrative units, contractors and keys
+- `0006_finalised_report_immutability.sql` - irreversible lock for finalised monthly report snapshots
 
 For a local database:
 
@@ -72,11 +73,7 @@ npm run db:migrate:local
 npm run db:seed
 ```
 
-For the production D1 database, take a remote export first and then run:
-
-```bash
-npx wrangler d1 migrations apply pmhub-production --remote
-```
+For the production D1 database, the guarded release script takes the backup first and then applies remote migrations.
 
 ## Development
 
@@ -100,34 +97,28 @@ The GitHub Actions validation workflow performs:
 1. dependency installation;
 2. strict TypeScript checking;
 3. the production Vite build;
-4. application of all migrations to a fresh local D1 database; and
-5. loading of local seed data.
+4. application of all migrations to a fresh local D1 database;
+5. loading of local development seed data;
+6. a second production-style rehearsal that loads the Phase 1 seed first and then applies migrations 0002 onward;
+7. assertions that demo accounts, sample issues, illustrative units, contractors and keys have been removed; and
+8. a database-level test that finalised monthly reports cannot be changed.
 
 Production deployment should not proceed unless this workflow passes.
 
 ## Production release sequence
 
-1. Review and merge the release pull request.
-2. Export a backup of `pmhub-production`.
-3. Apply remote D1 migrations.
-4. Verify named production accounts can authenticate.
-5. Verify all `@pmhub.demo` users are suspended and their sessions invalidated.
-6. Confirm known seed operational records have been removed.
-7. Build and deploy the Cloudflare Pages project.
-8. Run the role-based smoke-test matrix against the live URL.
+The release is automated by `scripts/release-cloudflare.sh` and `.github/workflows/release-cloudflare.yml` in this order:
 
-Example backup:
+1. validate TypeScript and build the Cloudflare bundle;
+2. export `pmhub-production` and store the pre-release backup privately in the existing R2 bucket;
+3. apply remote D1 migrations;
+4. verify named production account roles and property scopes;
+5. verify all `@pmhub.demo` users/sessions and known seed records are removed or disabled;
+6. deploy the Cloudflare Pages production build;
+7. run public health/login/PWA checks; and
+8. create temporary test users for every application role, run authenticated portal/API smoke tests, then delete the test users, sessions and test-only audit events.
 
-```bash
-npx wrangler d1 export pmhub-production --remote --output=pmhub-production-backup.sql
-```
-
-Example deployment:
-
-```bash
-npm run build
-npx wrangler pages deploy dist --project-name pmhub --branch main
-```
+The workflow can be run manually. A merge commit containing `[production-release]` also triggers the same guarded release automatically. A missing Cloudflare release token causes the workflow to fail **before** any production mutation.
 
 ## Production credentials
 
