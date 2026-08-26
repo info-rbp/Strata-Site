@@ -1,6 +1,5 @@
-// PM Hub capability-based access model — mirrors ProInspect's
-// SECURITY_CAPABILITIES / ROLE_CAPABILITIES pattern. Never gate access with
-// raw role string checks in route handlers; always check a capability.
+// ProInspect Building Management capability-based access model. Never gate
+// API access with ad-hoc role checks when a capability can express the rule.
 
 export const ROLES = [
   'system_administrator',
@@ -18,6 +17,8 @@ export const CAPABILITIES = [
   'property.read', 'property.manage',
   // Users
   'user.read', 'user.invite', 'user.manage', 'user.audit.read',
+  // Operational forms and daily diary
+  'form.read', 'activity.read', 'activity.create',
   // Resident requests / defects / work orders
   'request.create', 'request.read', 'request.triage',
   'defect.read', 'defect.manage', 'defect.verify',
@@ -44,7 +45,10 @@ export const CAPABILITIES = [
   // Notices / documents / communications
   'notice.read', 'notice.manage', 'document.read', 'document.manage',
   // Reporting / dashboards / audit
-  'dashboard.bm.read', 'dashboard.strata.read', 'report.generate', 'audit.read',
+  'dashboard.bm.read', 'dashboard.strata.read',
+  'report.generate', 'report.edit', 'report.finalise', 'audit.read',
+  // Integration outbox / future Google Sheets connector
+  'integration.read', 'integration.manage',
   // Tasks / calendar
   'task.read', 'task.manage', 'calendar.read',
   // Handover
@@ -66,6 +70,7 @@ const contractorCapabilities: Capability[] = [
 
 const buildingManagerCapabilities: Capability[] = [
   'property.read',
+  'form.read', 'activity.read', 'activity.create',
   'request.read', 'request.triage',
   'defect.read', 'defect.manage', 'defect.verify',
   'workorder.read', 'workorder.manage', 'workorder.verify',
@@ -81,18 +86,19 @@ const buildingManagerCapabilities: Capability[] = [
   'bylaw.read', 'bylaw.create',
   'quote.read', 'quote.manage',
   'notice.read', 'notice.manage', 'document.read', 'document.manage',
-  'dashboard.bm.read', 'report.generate',
+  'dashboard.bm.read',
+  'report.generate', 'report.edit', 'report.finalise',
   'task.read', 'task.manage', 'calendar.read',
   'handover.read', 'handover.manage',
 ];
 
-// Relief BM: identical operational access, time-limited (enforced via
-// users.access_expires_at, checked in auth middleware) and no vault-level
-// sensitive credential access (kept separate — Phase 2).
+// Relief Building Manager has the same operational permissions, while account
+// expiry remains enforced by auth middleware.
 const reliefBuildingManagerCapabilities: Capability[] = buildingManagerCapabilities;
 
 const strataManagerCapabilities: Capability[] = [
   'property.read', 'user.read', 'user.invite', 'user.manage',
+  'form.read', 'activity.read',
   'request.read',
   'defect.read', 'defect.manage',
   'workorder.read',
@@ -108,13 +114,15 @@ const strataManagerCapabilities: Capability[] = [
   'bylaw.read', 'bylaw.decide',
   'quote.read', 'quote.manage', 'approval.decide',
   'notice.read', 'notice.manage', 'document.read', 'document.manage',
-  'dashboard.bm.read', 'dashboard.strata.read', 'report.generate', 'audit.read',
+  'dashboard.bm.read', 'dashboard.strata.read',
+  'report.generate', 'report.edit', 'report.finalise', 'audit.read',
+  'integration.read', 'integration.manage',
   'task.read', 'calendar.read',
   'handover.read',
 ];
 
 const councilMemberCapabilities: Capability[] = [
-  'property.read',
+  'property.read', 'form.read', 'activity.read',
   'defect.read', 'workorder.read', 'contractor.read',
   'move.read', 'asset.read', 'maintenance.read', 'incident.read',
   'quote.read', 'notice.read', 'document.read',
@@ -141,8 +149,8 @@ export function roleHasCapability(role: Role | undefined, capability: Capability
   return roleCapabilities(role).includes(capability);
 }
 
-// Roles whose operational scope is a single property (all except
-// strata/council/system-admin, who may see across Prima & Meridian).
+// Roles whose operational scope is a single property. Strata, Council and
+// System Administrators may operate across both Prima and Meridian.
 export const SINGLE_PROPERTY_ROLES: readonly Role[] = [
   'building_manager',
   'relief_building_manager',
