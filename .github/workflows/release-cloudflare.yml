@@ -1,0 +1,128 @@
+name: Release ProInspect Building Management to Cloudflare
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proinspect-building-management-production
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: 8ca23ac6d2cc906d4dd13b8da5ea2b25
+  D1_DATABASE: pmhub-production
+  PAGES_PROJECT: pmhub
+  LIVE_URL: https://pmhub.pages.dev
+
+jobs:
+  release:
+    name: Backup, migrate and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Require Cloudflare release token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo 'CLOUDFLARE_API_TOKEN is not configured for the production environment.'; exit 1; }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Type-check
+        run: npm install --no-save --ignore-scripts --no-audit --no-fund typescript@5.9.2 && npx tsc --noEmit
+
+      - name: Build Cloudflare bundle
+        run: npm run build
+
+      - name: Export production D1 backup
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          mkdir -p release-artifacts
+          npx wrangler d1 export "$D1_DATABASE" --remote --output="release-artifacts/${D1_DATABASE}-${GITHUB_SHA}.sql"
+
+      - name: Upload pre-migration database backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmhub-production-pre-release-${{ github.sha }}
+          path: release-artifacts/*.sql
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Apply production D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler d1 migrations apply "$D1_DATABASE" --remote
+
+      - name: Verify production accounts and demo lockdown
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT email, role, status, COALESCE(property_scope,'all') AS property_scope FROM users WHERE email IN ('info@remotebusinesspartner.com.au','shan.goodlet@lpg.com.au','buildingmanager.prima@gmail.com','buildingmanager.meridian@gmail.com') ORDER BY email;"
+          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT COUNT(*) AS active_demo_users FROM users WHERE email LIKE '%@pmhub.demo' AND status = 'active';"
+          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT COUNT(*) AS active_demo_sessions FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.email LIKE '%@pmhub.demo';"
+          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT COUNT(*) AS known_demo_requests FROM resident_requests WHERE id = 'req_demo_1';"
+          npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT COUNT(*) AS known_demo_defects FROM defects WHERE id = 'defect_demo_1';"
+
+      - name: Deploy Cloudflare Pages production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler pages deploy dist --project-name "$PAGES_PROJECT" --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=false
+
+      - name: Wait for live deployment
+        run: sleep 12
+
+      - name: Public smoke checks
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/api/health" | tee release-artifacts/health.json
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/login" > release-artifacts/login.html
+          grep -q 'ProInspect Building Management' release-artifacts/login.html
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/manifest.webmanifest" > release-artifacts/manifest.webmanifest
+          grep -q 'ProInspect Building Management' release-artifacts/manifest.webmanifest
+
+      - name: Authenticated role smoke checks
+        if: ${{ secrets.PROINSPECT_ADMIN_PASSWORD != '' && secrets.PROINSPECT_PRIMA_BM_PASSWORD != '' && secrets.PROINSPECT_MERIDIAN_BM_PASSWORD != '' && secrets.PROINSPECT_STRATA_PASSWORD != '' }}
+        env:
+          ADMIN_PASSWORD: ${{ secrets.PROINSPECT_ADMIN_PASSWORD }}
+          PRIMA_BM_PASSWORD: ${{ secrets.PROINSPECT_PRIMA_BM_PASSWORD }}
+          MERIDIAN_BM_PASSWORD: ${{ secrets.PROINSPECT_MERIDIAN_BM_PASSWORD }}
+          STRATA_PASSWORD: ${{ secrets.PROINSPECT_STRATA_PASSWORD }}
+        run: |
+          smoke_role() {
+            email="$1"
+            password="$2"
+            page="$3"
+            api_path="$4"
+            jar="release-artifacts/cookies-$(echo "$email" | tr '@.' '__').txt"
+            curl --fail --silent --show-error --cookie-jar "$jar" --header 'Content-Type: application/json' --data "{\"email\":\"$email\",\"password\":\"$password\"}" "$LIVE_URL/api/login" > /dev/null
+            curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$page" > /dev/null
+            curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$api_path" > /dev/null
+          }
+          smoke_role 'info@remotebusinesspartner.com.au' "$ADMIN_PASSWORD" '/strata' '/api/properties'
+          smoke_role 'shan.goodlet@lpg.com.au' "$STRATA_PASSWORD" '/strata/reports' '/api/properties'
+          smoke_role 'buildingmanager.prima@gmail.com' "$PRIMA_BM_PASSWORD" '/bm/forms' '/api/forms/options'
+          smoke_role 'buildingmanager.meridian@gmail.com' "$MERIDIAN_BM_PASSWORD" '/bm/inspections' '/api/forms/options'
+
+      - name: Upload release smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmhub-production-smoke-${{ github.sha }}
+          path: release-artifacts
+          if-no-files-found: warn
+          retention-days: 30
