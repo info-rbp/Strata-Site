@@ -1,0 +1,39 @@
+name: Validate ProInspect Building Management
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Type-check
+        run: npm install --no-save --ignore-scripts --no-audit --no-fund typescript@5.9.2 && npx tsc --noEmit
+
+      - name: Build Cloudflare Pages bundle
+        run: npm run build
+
+      - name: Apply fresh local D1 migrations
+        run: npm run db:migrate:local
+
+      - name: Load fresh local seed data
+        run: npm run db:seed
