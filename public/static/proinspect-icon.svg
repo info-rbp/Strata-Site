@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">ProInspect Building Management</title>
+  <desc id="description">PI monogram over a simplified building form</desc>
+  <rect width="512" height="512" rx="112" fill="#17629d"/>
+  <path d="M120 395V151l136-72 136 72v244H120Z" fill="#ffffff" opacity="0.16"/>
+  <path d="M168 361V174h72c67 0 103 31 103 84 0 54-37 86-100 86h-28v17h-47Zm47-58h25c34 0 53-15 53-44 0-28-18-42-54-42h-24v86Z" fill="#ffffff"/>
+  <path d="M355 361V174h48v187h-48Z" fill="#ffffff"/>
+</svg>
