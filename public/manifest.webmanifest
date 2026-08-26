@@ -1,0 +1,40 @@
+{
+  "name": "ProInspect Building Management",
+  "short_name": "ProInspect BM",
+  "description": "Mobile building operations and monthly reporting for Prima and Meridian Apartments.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#17629d",
+  "orientation": "portrait-primary",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/static/proinspect-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Quick Forms",
+      "short_name": "Forms",
+      "url": "/bm/forms",
+      "icons": [{ "src": "/static/proinspect-icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Inspections",
+      "short_name": "Inspect",
+      "url": "/bm/inspections",
+      "icons": [{ "src": "/static/proinspect-icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Monthly Reports",
+      "short_name": "Reports",
+      "url": "/bm/reports",
+      "icons": [{ "src": "/static/proinspect-icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ]
+}

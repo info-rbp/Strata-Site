@@ -21,11 +21,14 @@ export type AppVariables = {
   user: AuthUser | null;
 };
 
-// Resolves the session cookie into a user and attaches it to context.
-// Does NOT reject unauthenticated requests — route-level guards decide that,
-// so public pages (login) and the resident portal's own auth flow both work.
+export const SESSION_COOKIE = 'proinspect_bm_session';
+export const LEGACY_SESSION_COOKIE = 'pmhub_session';
+
+// Resolve the renamed ProInspect cookie first, but accept the old PM Hub
+// cookie during the release transition so existing authenticated sessions do
+// not mysteriously evaporate between deployments.
 export async function attachSession(c: Context<{ Bindings: AppBindings; Variables: AppVariables }>, next: Next) {
-  const sessionId = getCookie(c, 'pmhub_session');
+  const sessionId = getCookie(c, SESSION_COOKIE) ?? getCookie(c, LEGACY_SESSION_COOKIE);
   if (!sessionId) {
     c.set('user', null);
     return next();

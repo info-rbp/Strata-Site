@@ -12,6 +12,32 @@ propertyRoutes.get('/properties', async (c) => {
   return c.json(scoped.results ?? []);
 });
 
+// Safe, property-scoped operating rules are used by resident, contractor and
+// Building Manager forms. They contain no security codes or private contacts.
+propertyRoutes.get('/properties/:id/operating-settings', async (c) => {
+  const user = requireAuth(c);
+  const propertyId = c.req.param('id');
+  assertPropertyAccess(user, propertyId);
+  const [property, settings] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT id, name, address, timezone, strata_plan as strataPlan FROM properties WHERE id = ?`,
+    ).bind(propertyId).first(),
+    c.env.DB.prepare(
+      `SELECT move_notice_hours as moveNoticeHours,
+              move_weekdays_only as moveWeekdaysOnly,
+              move_start_time as moveStartTime,
+              move_end_time as moveEndTime,
+              maximum_vehicle_height_mm as maximumVehicleHeightMm,
+              move_access_instructions as moveAccessInstructions,
+              contractor_sign_in_instructions as contractorSignInInstructions,
+              updated_at as updatedAt
+       FROM property_operating_settings WHERE property_id = ?`,
+    ).bind(propertyId).first(),
+  ]);
+  if (!property) return c.json({ error: { code: 'NOT_FOUND', message: 'Property not found.' } }, 404);
+  return c.json({ property, settings: settings ?? {} });
+});
+
 propertyRoutes.get('/properties/:id/units', async (c) => {
   const user = requireCapability(c, 'property.read');
   const propertyId = c.req.param('id');
@@ -41,11 +67,7 @@ propertyRoutes.get('/properties/:id/locations', async (c) => {
 
 // Resident convenience endpoint: returns the unit(s) the current user
 // occupies (owner/tenant/authorised_agent), used by the resident portal to
-// pre-fill forms (report a problem, move booking, access device request)
-// without asking the resident to know their own unit id. This is a
-// self-service "my own records" lookup, so it only requires authentication
-// (not the 'property.read' capability, which residents intentionally lack —
-// they must not be able to browse arbitrary property/unit data).
+// pre-fill forms without exposing the rest of the unit register.
 propertyRoutes.get('/me/units', async (c) => {
   const user = requireAuth(c);
   if (!user.personId) return c.json([]);

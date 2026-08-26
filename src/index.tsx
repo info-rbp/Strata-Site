@@ -6,6 +6,7 @@ import { HttpError } from './middleware/auth';
 
 import { authRoutes } from './routes/auth';
 import { propertyRoutes } from './routes/properties';
+import { operationsRoutes } from './routes/operations';
 import { requestRoutes } from './routes/requests';
 import { defectRoutes } from './routes/defects';
 import { workOrderRoutes } from './routes/workOrders';
@@ -16,6 +17,7 @@ import { incidentRoutes } from './routes/incidents';
 import { inspectionRoutes } from './routes/inspections';
 import { dashboardRoutes } from './routes/dashboard';
 import { notificationRoutes } from './routes/notifications';
+import { secureUploadRoutes } from './routes/secureUploads';
 import { documentRoutes } from './routes/documents';
 import { quoteRoutes } from './routes/quotes';
 import { reportRoutes } from './routes/reports';
@@ -23,18 +25,32 @@ import { handoverRoutes } from './routes/handover';
 import { userRoutes } from './routes/users';
 
 import { LoginPage } from './pages/login';
-import { ResidentHome, ResidentReport, ResidentMoves, ResidentAccessDevices, ResidentRequests, ResidentNotices } from './pages/resident';
+import { ResidentHome, ResidentReport, ResidentRequests, ResidentNotices } from './pages/resident';
+import { ResidentMoveBooking, ResidentAccessDeviceRequest } from './pages/residentOperations';
 import {
-  BmToday, BmTasks, BmInspections, BmDefects, BmWorkOrders, BmContractors,
-  BmMoves, BmUnits, BmAccessDevices, BmIncidents, BmBylaws, BmCalendar, BmReports, BmHandover,
+  BmToday, BmTasks, BmDefects, BmWorkOrders, BmContractors,
+  BmMoves, BmUnits, BmAccessDevices, BmIncidents, BmBylaws, BmCalendar, BmHandover,
 } from './pages/bm';
+import { BuildingManagerForms } from './pages/operationalForms';
+import { BuildingManagerInspections } from './pages/fieldInspections';
+import { BuildingManagerReports, StrataReports } from './pages/monthlyReports';
 import {
   StrataDashboard, StrataApprovals, StrataDefects, StrataContractors, StrataMoves,
   StrataAccessDevices, StrataIncidents, StrataBylaws, StrataNotices, StrataUsers, StrataAudit,
 } from './pages/strata';
-import { ContractorCheckIn, ContractorWork } from './pages/contractor';
+import { ContractorPortal, ContractorWork } from './pages/contractor';
 
 const app = new Hono<{ Bindings: AppBindings; Variables: AppVariables }>();
+
+// Keep response hardening conservative enough for the existing Cloudflare
+// preview/deployment model while removing the easy browser-side foot-guns.
+app.use('*', async (c, next) => {
+  await next();
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+  c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+});
 
 app.use(renderer);
 app.use('*', attachSession);
@@ -46,6 +62,7 @@ app.use('*', attachSession);
 const api = new Hono<{ Bindings: AppBindings; Variables: AppVariables }>();
 api.route('/', authRoutes);
 api.route('/', propertyRoutes);
+api.route('/', operationsRoutes);
 api.route('/', requestRoutes);
 api.route('/', defectRoutes);
 api.route('/', workOrderRoutes);
@@ -56,6 +73,9 @@ api.route('/', incidentRoutes);
 api.route('/', inspectionRoutes);
 api.route('/', dashboardRoutes);
 api.route('/', notificationRoutes);
+// Secure upload handlers must be registered before the legacy document routes
+// because both expose /uploads paths.
+api.route('/', secureUploadRoutes);
 api.route('/', documentRoutes);
 api.route('/', quoteRoutes);
 api.route('/', reportRoutes);
@@ -110,12 +130,12 @@ app.get('/resident/report', (c) => {
 app.get('/resident/moves', (c) => {
   const g = pageGuard(c, [...residentRoles]);
   if (g instanceof Response) return g;
-  return c.render(<ResidentMoves />, { title: 'Move / Delivery Booking' });
+  return c.render(<ResidentMoveBooking />, { title: 'Move / Large Item Booking' });
 });
 app.get('/resident/access-devices', (c) => {
   const g = pageGuard(c, [...residentRoles]);
   if (g instanceof Response) return g;
-  return c.render(<ResidentAccessDevices />, { title: 'Access Device Request' });
+  return c.render(<ResidentAccessDeviceRequest />, { title: 'Security Device / Key Request' });
 });
 app.get('/resident/requests', (c) => {
   const g = pageGuard(c, [...residentRoles]);
@@ -135,6 +155,11 @@ app.get('/bm', (c) => {
   if (g instanceof Response) return g;
   return c.render(<BmToday />, { title: 'Today' });
 });
+app.get('/bm/forms', (c) => {
+  const g = pageGuard(c, [...bmRoles]);
+  if (g instanceof Response) return g;
+  return c.render(<BuildingManagerForms />, { title: 'Quick Forms' });
+});
 app.get('/bm/tasks', (c) => {
   const g = pageGuard(c, [...bmRoles]);
   if (g instanceof Response) return g;
@@ -143,7 +168,7 @@ app.get('/bm/tasks', (c) => {
 app.get('/bm/inspections', (c) => {
   const g = pageGuard(c, [...bmRoles]);
   if (g instanceof Response) return g;
-  return c.render(<BmInspections />, { title: 'Inspections' });
+  return c.render(<BuildingManagerInspections />, { title: 'Building Inspections' });
 });
 app.get('/bm/defects', (c) => {
   const g = pageGuard(c, [...bmRoles]);
@@ -193,7 +218,7 @@ app.get('/bm/calendar', (c) => {
 app.get('/bm/reports', (c) => {
   const g = pageGuard(c, [...bmRoles]);
   if (g instanceof Response) return g;
-  return c.render(<BmReports />, { title: 'Reports' });
+  return c.render(<BuildingManagerReports />, { title: 'Monthly Reports' });
 });
 app.get('/bm/handover', (c) => {
   const g = pageGuard(c, [...bmRoles]);
@@ -207,6 +232,11 @@ app.get('/strata', (c) => {
   const g = pageGuard(c, [...strataRoles]);
   if (g instanceof Response) return g;
   return c.render(<StrataDashboard />, { title: 'Dashboard' });
+});
+app.get('/strata/reports', (c) => {
+  const g = pageGuard(c, [...strataRoles]);
+  if (g instanceof Response) return g;
+  return c.render(<StrataReports />, { title: 'Monthly Reports' });
 });
 app.get('/strata/approvals', (c) => {
   const g = pageGuard(c, [...strataRoles]);
@@ -259,12 +289,12 @@ app.get('/strata/audit', (c) => {
   return c.render(<StrataAudit />, { title: 'Audit Log' });
 });
 
-// --- Contractor portal -------------------------------------------------------
+// --- Contractor portal -----------------------------------------------------
 const contractorRoles = ['contractor'] as const;
 app.get('/contractor', (c) => {
   const g = pageGuard(c, [...contractorRoles]);
   if (g instanceof Response) return g;
-  return c.render(<ContractorCheckIn />, { title: 'Check-in' });
+  return c.render(<ContractorPortal />, { title: 'Check-in / Out' });
 });
 app.get('/contractor/work', (c) => {
   const g = pageGuard(c, [...contractorRoles]);
