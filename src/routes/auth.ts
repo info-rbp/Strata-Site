@@ -1,8 +1,13 @@
 import { Hono } from 'hono';
 import { setCookie, deleteCookie } from 'hono/cookie';
 import type { AppBindings, AppVariables } from '../middleware/auth';
-import { requireAuth, HttpError } from '../middleware/auth';
-import { verifyPassword } from '../lib/crypto';
+import {
+  requireAuth,
+  HttpError,
+  SESSION_COOKIE,
+  LEGACY_SESSION_COOKIE,
+} from '../middleware/auth';
+import { verifyPassword, hashPassword } from '../lib/crypto';
 import { newId } from '../lib/ids';
 import { recordAudit } from '../lib/audit';
 
@@ -19,7 +24,7 @@ authRoutes.post('/login', async (c) => {
   const user = await c.env.DB.prepare(
     `SELECT u.id, u.email, u.password_hash as passwordHash, u.role, u.status,
             u.access_expires_at as accessExpiresAt, u.property_scope as propertyScope
-     FROM users u WHERE u.email = ?`,
+     FROM users u WHERE lower(u.email) = ?`,
   )
     .bind(email)
     .first<{
@@ -58,27 +63,24 @@ authRoutes.post('/login', async (c) => {
     entityId: user.id,
   });
 
-  // SameSite=None (with Secure) is required here, not Lax: the sandbox
-  // preview (and Cloudflare Pages preview deployments generally) is loaded
-  // inside a cross-site iframe by the hosting UI. Lax cookies are dropped
-  // by the browser in that third-party context, which makes login look
-  // like it "succeeds" (200 + Set-Cookie) but every subsequent request is
-  // treated as unauthenticated and bounces back to /login.
-  setCookie(c, 'pmhub_session', sessionId, {
+  // SameSite=None (with Secure) remains necessary for the existing embedded
+  // Cloudflare preview workflow. The visible product name is now ProInspect,
+  // but the legacy cookie is deleted after each successful login.
+  setCookie(c, SESSION_COOKIE, sessionId, {
     httpOnly: true,
     secure: true,
     sameSite: 'None',
     path: '/',
     maxAge: 60 * 60 * 24 * 7,
   });
+  deleteCookie(c, LEGACY_SESSION_COOKIE, { path: '/', secure: true, sameSite: 'None' });
 
   return c.json({ id: user.id, email: user.email, role: user.role, propertyScope: user.propertyScope });
 });
 
 authRoutes.post('/logout', async (c) => {
-  // Deletion attributes must match the attributes the cookie was set with
-  // (path + sameSite/secure) or some browsers will ignore the deletion.
-  deleteCookie(c, 'pmhub_session', { path: '/', secure: true, sameSite: 'None' });
+  deleteCookie(c, SESSION_COOKIE, { path: '/', secure: true, sameSite: 'None' });
+  deleteCookie(c, LEGACY_SESSION_COOKIE, { path: '/', secure: true, sameSite: 'None' });
   return c.json({ ok: true });
 });
 
@@ -86,4 +88,43 @@ authRoutes.get('/me', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ user: null });
   return c.json({ user });
+});
+
+// Allows initial production credentials to be rotated without direct database
+// access. The current password is always required and passwords are never
+// returned by the API or written to the audit log.
+authRoutes.post('/change-password', async (c) => {
+  const user = requireAuth(c);
+  const body = await c.req.json<{ currentPassword?: string; newPassword?: string }>().catch(() => ({}));
+  const currentPassword = body.currentPassword ?? '';
+  const newPassword = body.newPassword ?? '';
+  if (newPassword.length < 14) {
+    throw new HttpError(400, 'WEAK_PASSWORD', 'New password must be at least 14 characters.');
+  }
+  if (newPassword.length > 200) {
+    throw new HttpError(400, 'INVALID_PASSWORD', 'New password is too long.');
+  }
+
+  const row = await c.env.DB.prepare(`SELECT password_hash as passwordHash FROM users WHERE id = ?`)
+    .bind(user.id)
+    .first<{ passwordHash: string }>();
+  if (!row || !(await verifyPassword(currentPassword, row.passwordHash))) {
+    throw new HttpError(403, 'CURRENT_PASSWORD_INCORRECT', 'Current password is incorrect.');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await c.env.DB.prepare(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`)
+    .bind(passwordHash, user.id)
+    .run();
+  await recordAudit(c.env.DB, {
+    propertyId: user.propertyScope,
+    actorUserId: user.id,
+    actorRole: user.role,
+    action: 'update',
+    entityType: 'user_security',
+    entityId: user.id,
+    after: { passwordChanged: true },
+  });
+
+  return c.json({ ok: true });
 });
