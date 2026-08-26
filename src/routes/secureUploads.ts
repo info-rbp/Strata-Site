@@ -77,7 +77,7 @@ secureUploadRoutes.post('/uploads', async (c) => {
   const fileName = safeFileName(c.req.header('X-File-Name'));
   const now = new Date();
   const key = `${propertyId}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${newId('upload')}-${fileName}`;
-  await c.env.EVIDENCE_BUCKET.put(key, bytes, {
+  await c.env.EVIDENCE.put(key, bytes, {
     httpMetadata: { contentType },
     customMetadata: {
       propertyId,
@@ -118,7 +118,7 @@ async function serveObject(c: Parameters<typeof requireAuth>[0], key: string): P
     throw new HttpError(400, 'INVALID_OBJECT_KEY', 'Invalid evidence object key.');
   }
 
-  const object = await c.env.EVIDENCE_BUCKET.get(decodedKey);
+  const object = await c.env.EVIDENCE.get(decodedKey);
   if (!object) throw new HttpError(404, 'FILE_NOT_FOUND', 'Evidence file not found.');
   const metadataPropertyId = object.customMetadata?.propertyId || null;
   const propertyId = metadataPropertyId ?? propertyFromKey(decodedKey);
