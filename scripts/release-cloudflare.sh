@@ -40,6 +40,17 @@ test -n "${CLOUDFLARE_API_TOKEN:-}" || {
   exit 1
 }
 
+# Prevent this workflow being triggered before the release PR containing the
+# production migrations has actually reached main.
+test -f migrations/0006_finalised_report_immutability.sql || {
+  echo 'Production release migrations are not present on main. Merge the release candidate first.' >&2
+  exit 1
+}
+test -f src/routes/operations.ts || {
+  echo 'ProInspect operational routes are not present on main.' >&2
+  exit 1
+}
+
 mkdir -p "$WORK_DIR"
 
 printf '\n== Install and validate ==\n'
@@ -63,7 +74,7 @@ d1_json() {
   npx wrangler d1 execute "$D1_DATABASE" --remote --json --command "$1"
 }
 
-account_json="$(d1_json "SELECT COUNT(*) AS account_count FROM users WHERE email IN ('info@remotebusinesspartner.com.au','shan.goodlet@lpg.com.au','buildingmanager.prima@gmail.com','buildingmanager.meridian@gmail.com') AND status = 'active';")"
+account_json="$(d1_json "SELECT COUNT(*) AS account_count FROM users WHERE status = 'active' AND ((lower(email) = 'info@remotebusinesspartner.com.au' AND role = 'system_administrator' AND property_scope IS NULL) OR (lower(email) = 'shan.goodlet@lpg.com.au' AND role = 'strata_manager' AND property_scope IS NULL) OR (lower(email) = 'buildingmanager.prima@gmail.com' AND role = 'building_manager' AND property_scope = 'prop_prima') OR (lower(email) = 'buildingmanager.meridian@gmail.com' AND role = 'building_manager' AND property_scope = 'prop_meridian')); ")"
 echo "$account_json" | jq -e '.[0].results[0].account_count == 4' >/dev/null
 
 demo_users_json="$(d1_json "SELECT COUNT(*) AS active_demo_users FROM users WHERE email LIKE '%@pmhub.demo' AND status = 'active';")"
@@ -75,8 +86,11 @@ echo "$demo_sessions_json" | jq -e '.[0].results[0].active_demo_sessions == 0' >
 demo_records_json="$(d1_json "SELECT (SELECT COUNT(*) FROM resident_requests WHERE id = 'req_demo_1') + (SELECT COUNT(*) FROM defects WHERE id = 'defect_demo_1') AS known_demo_records;")"
 echo "$demo_records_json" | jq -e '.[0].results[0].known_demo_records == 0' >/dev/null
 
-npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT email, role, status, COALESCE(property_scope,'all') AS property_scope FROM users WHERE email IN ('info@remotebusinesspartner.com.au','shan.goodlet@lpg.com.au','buildingmanager.prima@gmail.com','buildingmanager.meridian@gmail.com') ORDER BY email;"
-summary 'Production account and demo-lockdown checks passed.'
+seed_reference_json="$(d1_json "SELECT (SELECT COUNT(*) FROM units WHERE id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607')) + (SELECT COUNT(*) FROM contractors WHERE id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean')) + (SELECT COUNT(*) FROM keys_register WHERE id IN ('key_prima_plant','key_prima_waste','key_meridian_plant','key_meridian_waste')) AS seeded_reference_records;")"
+echo "$seed_reference_json" | jq -e '.[0].results[0].seeded_reference_records == 0' >/dev/null
+
+npx wrangler d1 execute "$D1_DATABASE" --remote --command "SELECT email, role, status, COALESCE(property_scope,'all') AS property_scope FROM users WHERE lower(email) IN ('info@remotebusinesspartner.com.au','shan.goodlet@lpg.com.au','buildingmanager.prima@gmail.com','buildingmanager.meridian@gmail.com') ORDER BY email;"
+summary 'Production account, demo-lockdown and seed-data checks passed.'
 
 printf '\n== Deploy Cloudflare Pages ==\n'
 npx wrangler pages deploy dist --project-name "$PAGES_PROJECT" --branch main --commit-hash "$RELEASE_SHA"
