@@ -20,6 +20,38 @@ export interface CaptureOperationalFormResult {
   duplicate: boolean;
 }
 
+export interface ExistingCapturedEntity {
+  submissionId: string;
+  entityType: string;
+  entityId: string;
+  formType: OperationalFormType;
+  submittedAt: string;
+}
+
+/**
+ * Used before creating a business record. Mobile browsers may replay queued
+ * submissions after a weak connection; a stable clientSubmissionId makes that
+ * replay safe instead of producing duplicate defects, incidents or diary rows.
+ */
+export async function findExistingCapturedEntity(
+  db: D1Database,
+  propertyId: string,
+  clientSubmissionId?: string | null,
+): Promise<ExistingCapturedEntity | null> {
+  const clientId = clientSubmissionId?.trim();
+  if (!clientId) return null;
+  return db
+    .prepare(
+      `SELECT id as submissionId, entity_type as entityType, entity_id as entityId,
+              form_type as formType, submitted_at as submittedAt
+       FROM form_submissions
+       WHERE property_id = ? AND client_submission_id = ?
+       LIMIT 1`,
+    )
+    .bind(propertyId, clientId)
+    .first<ExistingCapturedEntity>();
+}
+
 /**
  * Archives the exact submitted payload and adds a provider-neutral integration
  * event in one D1 batch. The Google Sheets connector can later consume the
