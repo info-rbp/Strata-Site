@@ -10,6 +10,7 @@ RELEASE_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo manual)}"
 RELEASE_RUN_ID="${GITHUB_RUN_ID:-manual-$(date -u +%Y%m%dT%H%M%SZ)}"
 WORK_DIR="release-work"
 BACKUP_R2_KEY="production-backups/${RELEASE_RUN_ID}/${D1_DATABASE}-${RELEASE_SHA}.sql"
+SMOKE_USERS_CREATED=0
 
 export CLOUDFLARE_ACCOUNT_ID
 
@@ -21,7 +22,21 @@ summary() {
   fi
 }
 
+cleanup_smoke_users() {
+  if [ "$SMOKE_USERS_CREATED" != '1' ] || [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+    return 0
+  fi
+  npx wrangler d1 execute "$D1_DATABASE" --remote --command "
+    DELETE FROM sessions WHERE user_id LIKE 'user_release_smoke_%';
+    DELETE FROM notifications WHERE user_id LIKE 'user_release_smoke_%';
+    DELETE FROM audit_events WHERE actor_user_id LIKE 'user_release_smoke_%' OR (entity_type = 'user' AND entity_id LIKE 'user_release_smoke_%');
+    DELETE FROM users WHERE id LIKE 'user_release_smoke_%';
+  " >/dev/null 2>&1 || true
+  SMOKE_USERS_CREATED=0
+}
+
 cleanup() {
+  cleanup_smoke_users
   rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
@@ -107,33 +122,54 @@ curl --fail --silent --show-error --retry 5 --retry-delay 3 "$LIVE_URL/manifest.
 grep -q 'ProInspect Building Management' "$WORK_DIR/manifest.webmanifest"
 summary 'Public production smoke checks passed.'
 
-printf '\n== Authenticated role smoke checks ==\n'
-if [ -n "${PROINSPECT_ADMIN_PASSWORD:-}" ] && \
-   [ -n "${PROINSPECT_STRATA_PASSWORD:-}" ] && \
-   [ -n "${PROINSPECT_PRIMA_BM_PASSWORD:-}" ] && \
-   [ -n "${PROINSPECT_MERIDIAN_BM_PASSWORD:-}" ]; then
-  smoke_role() {
-    local email="$1"
-    local password="$2"
-    local page="$3"
-    local api_path="$4"
-    local jar payload
-    jar="$(mktemp)"
-    payload="$(jq -nc --arg email "$email" --arg password "$password" '{email:$email,password:$password}')"
-    curl --fail --silent --show-error --cookie-jar "$jar" --header 'Content-Type: application/json' --data "$payload" "$LIVE_URL/api/login" >/dev/null
-    curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$page" >/dev/null
-    curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$api_path" >/dev/null
-    rm -f "$jar"
-  }
+printf '\n== Create ephemeral role smoke users ==\n'
+smoke_password="$(node -e "process.stdout.write(require('crypto').randomBytes(30).toString('base64url'))")"
+smoke_hash="$(SMOKE_PASSWORD="$smoke_password" node -e "const c=require('crypto'); const salt=c.randomBytes(16).toString('hex'); const hash=c.pbkdf2Sync(process.env.SMOKE_PASSWORD,salt,100000,32,'sha256').toString('hex'); process.stdout.write('pbkdf2$100000$'+salt+'$'+hash);")"
 
-  smoke_role 'info@remotebusinesspartner.com.au' "$PROINSPECT_ADMIN_PASSWORD" '/strata' '/api/properties'
-  smoke_role 'shan.goodlet@lpg.com.au' "$PROINSPECT_STRATA_PASSWORD" '/strata/reports' '/api/properties'
-  smoke_role 'buildingmanager.prima@gmail.com' "$PROINSPECT_PRIMA_BM_PASSWORD" '/bm/forms' '/api/forms/options'
-  smoke_role 'buildingmanager.meridian@gmail.com' "$PROINSPECT_MERIDIAN_BM_PASSWORD" '/bm/inspections' '/api/forms/options'
-  summary 'Authenticated production role smoke checks passed.'
-else
-  summary 'Authenticated role smoke checks skipped because one or more production password secrets are not configured.'
-fi
+# Clear leftovers from a previously interrupted release before inserting this
+# run's temporary accounts. The EXIT trap repeats the cleanup after testing.
+SMOKE_USERS_CREATED=1
+cleanup_smoke_users
+SMOKE_USERS_CREATED=1
+npx wrangler d1 execute "$D1_DATABASE" --remote --command "
+  INSERT INTO users (id, person_id, email, password_hash, role, property_scope, status) VALUES
+    ('user_release_smoke_admin', NULL, 'release-smoke-admin@proinspect.invalid', '$smoke_hash', 'system_administrator', NULL, 'active'),
+    ('user_release_smoke_strata', NULL, 'release-smoke-strata@proinspect.invalid', '$smoke_hash', 'strata_manager', NULL, 'active'),
+    ('user_release_smoke_council', NULL, 'release-smoke-council@proinspect.invalid', '$smoke_hash', 'council_member', NULL, 'active'),
+    ('user_release_smoke_bm_prima', NULL, 'release-smoke-bm-prima@proinspect.invalid', '$smoke_hash', 'building_manager', 'prop_prima', 'active'),
+    ('user_release_smoke_bm_meridian', NULL, 'release-smoke-bm-meridian@proinspect.invalid', '$smoke_hash', 'building_manager', 'prop_meridian', 'active'),
+    ('user_release_smoke_relief', NULL, 'release-smoke-relief@proinspect.invalid', '$smoke_hash', 'relief_building_manager', 'prop_prima', 'active'),
+    ('user_release_smoke_contractor', NULL, 'release-smoke-contractor@proinspect.invalid', '$smoke_hash', 'contractor', 'prop_prima', 'active'),
+    ('user_release_smoke_resident', NULL, 'release-smoke-resident@proinspect.invalid', '$smoke_hash', 'resident', 'prop_prima', 'active');
+" >/dev/null
+
+printf '\n== Authenticated role smoke checks ==\n'
+smoke_role() {
+  local email="$1"
+  local page="$2"
+  local api_path="$3"
+  local jar payload
+  jar="$(mktemp)"
+  payload="$(jq -nc --arg email "$email" --arg password "$smoke_password" '{email:$email,password:$password}')"
+  curl --fail --silent --show-error --cookie-jar "$jar" --header 'Content-Type: application/json' --data "$payload" "$LIVE_URL/api/login" >/dev/null
+  curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$page" >/dev/null
+  curl --fail --silent --show-error --cookie "$jar" "$LIVE_URL$api_path" >/dev/null
+  rm -f "$jar"
+}
+
+smoke_role 'release-smoke-admin@proinspect.invalid' '/strata' '/api/properties'
+smoke_role 'release-smoke-strata@proinspect.invalid' '/strata/reports' '/api/properties'
+smoke_role 'release-smoke-council@proinspect.invalid' '/strata' '/api/properties'
+smoke_role 'release-smoke-bm-prima@proinspect.invalid' '/bm/forms' '/api/forms/options'
+smoke_role 'release-smoke-bm-meridian@proinspect.invalid' '/bm/inspections' '/api/forms/options'
+smoke_role 'release-smoke-relief@proinspect.invalid' '/bm' '/api/forms/options'
+smoke_role 'release-smoke-contractor@proinspect.invalid' '/contractor' '/api/me'
+smoke_role 'release-smoke-resident@proinspect.invalid' '/resident' '/api/me'
+
+cleanup_smoke_users
+remaining_smoke_json="$(d1_json "SELECT COUNT(*) AS smoke_users FROM users WHERE id LIKE 'user_release_smoke_%';")"
+echo "$remaining_smoke_json" | jq -e '.[0].results[0].smoke_users == 0' >/dev/null
+summary 'Authenticated role smoke checks passed for Admin, Strata, Council, both Building Managers, Relief BM, Contractor and Resident.'
 
 summary "Release commit: \`$RELEASE_SHA\`"
 summary "Live URL: $LIVE_URL"
