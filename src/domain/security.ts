@@ -22,7 +22,7 @@ export const CAPABILITIES = [
   // Resident requests / defects / work orders
   'request.create', 'request.read', 'request.triage',
   'defect.read', 'defect.manage', 'defect.verify',
-  'workorder.read', 'workorder.manage', 'workorder.verify',
+  'workorder.read', 'workorder.manage', 'workorder.complete', 'workorder.verify',
   // Contractors / attendance / keys
   'contractor.read', 'contractor.manage',
   'attendance.read', 'attendance.manage', 'attendance.override',
@@ -63,9 +63,11 @@ const residentCapabilities: Capability[] = [
   'notice.read', 'document.read',
 ];
 
+// Contractors may submit their own attendance and completion evidence, but
+// cannot manage the key register, other contractors, or the document library.
 const contractorCapabilities: Capability[] = [
-  'workorder.read', 'attendance.read', 'attendance.manage',
-  'key.read', 'document.read',
+  'workorder.read', 'workorder.complete',
+  'attendance.read', 'attendance.manage',
 ];
 
 const buildingManagerCapabilities: Capability[] = [
@@ -73,7 +75,7 @@ const buildingManagerCapabilities: Capability[] = [
   'form.read', 'activity.read', 'activity.create',
   'request.read', 'request.triage',
   'defect.read', 'defect.manage', 'defect.verify',
-  'workorder.read', 'workorder.manage', 'workorder.verify',
+  'workorder.read', 'workorder.manage', 'workorder.complete', 'workorder.verify',
   'contractor.read', 'contractor.manage',
   'attendance.read', 'attendance.manage', 'attendance.override',
   'key.read', 'key.manage',
