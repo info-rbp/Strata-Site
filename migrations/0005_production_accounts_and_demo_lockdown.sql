@@ -74,14 +74,6 @@ UPDATE users
 SET status = 'suspended', updated_at = datetime('now')
 WHERE email LIKE '%@pmhub.demo';
 
--- Seeded residents must not appear as current occupants in a production
--- resident/unit register. Preserve their historical rows for referential
--- integrity while making them inactive.
-UPDATE occupancies
-SET is_current = 0,
-    end_date = COALESCE(end_date, date('now'))
-WHERE id IN ('occ_101', 'occ_205', 'occ_1002');
-
 -- =========================================================================
 -- 3. Remove the known Phase-1 sample operational issue
 -- =========================================================================
@@ -99,7 +91,132 @@ UPDATE resident_requests SET defect_id = NULL WHERE id = 'req_demo_1';
 DELETE FROM defects WHERE id = 'defect_demo_1';
 DELETE FROM resident_requests WHERE id = 'req_demo_1';
 
--- Leave the property/building/location/inspection-template reference data in
--- place. Those records are required for the application to remain usable after
--- demo accounts are disabled and can be replaced incrementally with verified
--- building data.
+-- =========================================================================
+-- 4. Remove known illustrative units from the production unit register
+-- =========================================================================
+
+-- These six units were explicitly created as Phase-1 seed examples. Production
+-- must not present them as real Prima/Meridian lots. Preserve any exploratory
+-- operational record where possible by detaching its sample-unit reference;
+-- records whose workflow requires a unit (moves/onboarding) are demo data and
+-- are removed.
+
+DELETE FROM resident_onboarding
+WHERE unit_id IN (
+  'unit_prima_101','unit_prima_205','unit_prima_312',
+  'unit_meridian_1002','unit_meridian_1503','unit_meridian_607'
+)
+OR move_booking_id IN (
+  SELECT id FROM move_bookings WHERE unit_id IN (
+    'unit_prima_101','unit_prima_205','unit_prima_312',
+    'unit_meridian_1002','unit_meridian_1503','unit_meridian_607'
+  )
+);
+
+DELETE FROM tasks
+WHERE linked_entity_type = 'move_booking'
+  AND linked_entity_id IN (
+    SELECT id FROM move_bookings WHERE unit_id IN (
+      'unit_prima_101','unit_prima_205','unit_prima_312',
+      'unit_meridian_1002','unit_meridian_1503','unit_meridian_607'
+    )
+  );
+
+DELETE FROM calendar_events
+WHERE linked_entity_type = 'move_booking'
+  AND linked_entity_id IN (
+    SELECT id FROM move_bookings WHERE unit_id IN (
+      'unit_prima_101','unit_prima_205','unit_prima_312',
+      'unit_meridian_1002','unit_meridian_1503','unit_meridian_607'
+    )
+  );
+
+DELETE FROM move_bookings
+WHERE unit_id IN (
+  'unit_prima_101','unit_prima_205','unit_prima_312',
+  'unit_meridian_1002','unit_meridian_1503','unit_meridian_607'
+);
+
+DELETE FROM occupancies
+WHERE unit_id IN (
+  'unit_prima_101','unit_prima_205','unit_prima_312',
+  'unit_meridian_1002','unit_meridian_1503','unit_meridian_607'
+);
+
+UPDATE resident_requests SET unit_id = NULL
+WHERE unit_id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');
+UPDATE defects SET unit_id = NULL
+WHERE unit_id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');
+UPDATE access_device_requests SET unit_id = NULL
+WHERE unit_id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');
+UPDATE access_devices SET unit_id = NULL
+WHERE unit_id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');
+UPDATE incidents SET unit_id = NULL
+WHERE unit_id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');
+UPDATE bylaw_observations SET unit_id = NULL
+WHERE unit_id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');
+UPDATE waste_events SET responsible_unit_id = NULL
+WHERE responsible_unit_id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');
+UPDATE daily_activity_logs SET unit_id = NULL
+WHERE unit_id IN ('unit_prima_101','unit_prima_205','unit_prima_312','unit_meridian_1002','unit_meridian_1503','unit_meridian_607');
+
+DELETE FROM units
+WHERE id IN (
+  'unit_prima_101','unit_prima_205','unit_prima_312',
+  'unit_meridian_1002','unit_meridian_1503','unit_meridian_607'
+);
+
+-- =========================================================================
+-- 5. Remove known illustrative contractors and keys
+-- =========================================================================
+
+-- Attendance created against the seeded contractors is demo attendance. Remove
+-- its transactions first, then detach seeded contractors from any retained
+-- maintenance records before deleting the contractor directory entries.
+
+DELETE FROM key_transactions
+WHERE contractor_attendance_id IN (
+  SELECT id FROM contractor_attendance
+  WHERE contractor_id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean')
+);
+
+DELETE FROM tasks
+WHERE linked_entity_type = 'contractor_attendance'
+  AND linked_entity_id IN (
+    SELECT id FROM contractor_attendance
+    WHERE contractor_id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean')
+  );
+
+DELETE FROM contractor_attendance
+WHERE contractor_id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean');
+
+UPDATE work_orders SET contractor_id = NULL
+WHERE contractor_id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean');
+UPDATE quotes SET contractor_id = NULL
+WHERE contractor_id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean');
+UPDATE assets SET responsible_contractor_id = NULL
+WHERE responsible_contractor_id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean');
+UPDATE maintenance_plans SET responsible_contractor_id = NULL
+WHERE responsible_contractor_id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean');
+UPDATE daily_activity_logs SET contractor_id = NULL
+WHERE contractor_id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean');
+
+DELETE FROM contractors
+WHERE id IN ('ctr_ace_plumbing','ctr_bright_electrical','ctr_liftcare','ctr_greenclean');
+
+-- The seeded key register is illustrative as well. Detach any exploratory
+-- attendance reference and remove both its transaction history and key rows.
+UPDATE contractor_attendance
+SET key_id = NULL, key_issued = 0
+WHERE key_id IN ('key_prima_plant','key_prima_waste','key_meridian_plant','key_meridian_waste');
+
+DELETE FROM key_transactions
+WHERE key_id IN ('key_prima_plant','key_prima_waste','key_meridian_plant','key_meridian_waste');
+
+DELETE FROM keys_register
+WHERE id IN ('key_prima_plant','key_prima_waste','key_meridian_plant','key_meridian_waste');
+
+-- Keep verified property identity, corrected buildings, generic common-area
+-- locations and the reusable inspection templates/checkpoints. Real unit,
+-- contractor, resident and key registers can now be imported without being
+-- mixed with Phase-1 examples.
