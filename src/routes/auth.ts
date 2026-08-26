@@ -13,8 +13,11 @@ import { recordAudit } from '../lib/audit';
 
 export const authRoutes = new Hono<{ Bindings: AppBindings; Variables: AppVariables }>();
 
+type LoginBody = { email?: string; password?: string };
+type ChangePasswordBody = { currentPassword?: string; newPassword?: string };
+
 authRoutes.post('/login', async (c) => {
-  const body = await c.req.json<{ email?: string; password?: string }>().catch(() => ({}));
+  const body: LoginBody = await c.req.json<LoginBody>().catch(() => ({}));
   const email = (body.email ?? '').trim().toLowerCase();
   const password = body.password ?? '';
   if (!email || !password) {
@@ -95,7 +98,7 @@ authRoutes.get('/me', async (c) => {
 // returned by the API or written to the audit log.
 authRoutes.post('/change-password', async (c) => {
   const user = requireAuth(c);
-  const body = await c.req.json<{ currentPassword?: string; newPassword?: string }>().catch(() => ({}));
+  const body: ChangePasswordBody = await c.req.json<ChangePasswordBody>().catch(() => ({}));
   const currentPassword = body.currentPassword ?? '';
   const newPassword = body.newPassword ?? '';
   if (newPassword.length < 14) {
