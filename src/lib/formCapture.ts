@@ -92,7 +92,7 @@ export async function captureOperationalForm(
   const eventType = params.eventType ?? 'created';
   const dedupeKey = clientSubmissionId
     ? `${params.propertyId}:${params.formType}:${clientSubmissionId}`
-    : `${params.entityType}:${params.entityId}:${eventType}:${schemaVersion}`;
+    : `${params.entityType}:${params.entityId}:${eventType}:${submissionId}`;
   const payloadJson = JSON.stringify({
     schemaVersion,
     formType: params.formType,
