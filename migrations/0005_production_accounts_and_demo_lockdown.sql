@@ -3,8 +3,8 @@
 -- Plain-text passwords are never stored in this repository. Password hashes
 -- below are PBKDF2-SHA256 (100,000 iterations) generated specifically for the
 -- initial production accounts. Temporary credentials are handed to the system
--- owner separately and should be rotated through the application when password
--- management is introduced.
+-- owner separately and should be rotated through the application after first
+-- login.
 
 -- =========================================================================
 -- 1. Named production people and users
@@ -86,12 +86,16 @@ WHERE id IN ('occ_101', 'occ_205', 'occ_1002');
 -- 3. Remove the known Phase-1 sample operational issue
 -- =========================================================================
 
+-- Detach any test records that an operator may have linked to the sample defect
+-- before removing it. This keeps the migration safe if exploratory use of the
+-- live demo created work orders, quotes or approvals after the original seed.
+UPDATE work_orders SET defect_id = NULL WHERE defect_id = 'defect_demo_1';
+UPDATE quotes SET defect_id = NULL WHERE defect_id = 'defect_demo_1';
 DELETE FROM defect_evidence WHERE defect_id = 'defect_demo_1';
-DELETE FROM work_orders WHERE defect_id = 'defect_demo_1';
-DELETE FROM quotes WHERE defect_id = 'defect_demo_1';
 DELETE FROM tasks
 WHERE (linked_entity_type = 'defect' AND linked_entity_id = 'defect_demo_1')
    OR (linked_entity_type = 'resident_request' AND linked_entity_id = 'req_demo_1');
+UPDATE resident_requests SET defect_id = NULL WHERE id = 'req_demo_1';
 DELETE FROM defects WHERE id = 'defect_demo_1';
 DELETE FROM resident_requests WHERE id = 'req_demo_1';
 
